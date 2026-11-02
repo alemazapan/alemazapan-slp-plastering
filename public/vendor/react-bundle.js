@@ -294,16 +294,16 @@
   var SVG_TAGS = /^(svg|path|circle|rect|line|polyline|polygon|g|defs|text|use)$/i;
 
   function setProp(dom, name, val, prevVal) {
-    if (name === 'children' || name === 'key') return;
+    if (!dom || dom.nodeType === 3 || name === 'children' || name === 'key') return;
 
     if (name.startsWith('on') && typeof val === 'function') {
       var eventName = name.slice(2).toLowerCase();
-      if (dom._slpHandlers && dom._slpHandlers[eventName]) {
+      if (dom._slpHandlers && dom._slpHandlers[eventName] && dom.removeEventListener) {
         dom.removeEventListener(eventName, dom._slpHandlers[eventName]);
       }
       if (!dom._slpHandlers) dom._slpHandlers = {};
       dom._slpHandlers[eventName] = val;
-      dom.addEventListener(eventName, val);
+      if (dom.addEventListener) dom.addEventListener(eventName, val);
     } else if (name === 'className' || name === 'class') {
       if (dom.setAttribute) {
         dom.setAttribute('class', val || '');
@@ -312,29 +312,32 @@
       }
     } else if (name === 'style') {
       if (typeof val === 'string') {
-        dom.style.cssText = val;
+        if (dom.style) dom.style.cssText = val;
       } else if (typeof val === 'object' && val) {
-        Object.assign(dom.style, val);
+        if (dom.style) Object.assign(dom.style, val);
       } else {
-        dom.removeAttribute('style');
+        if (dom.removeAttribute) dom.removeAttribute('style');
       }
     } else if (name === 'dangerouslySetInnerHTML') {
       if (val && val.__html != null) {
         dom.innerHTML = val.__html;
       }
     } else if (typeof val === 'boolean') {
-      if (val) dom.setAttribute(name, '');
-      else dom.removeAttribute(name);
+      if (val) {
+        if (dom.setAttribute) dom.setAttribute(name, '');
+      } else {
+        if (dom.removeAttribute) dom.removeAttribute(name);
+      }
       if (name in dom) {
         try { dom[name] = val; } catch(e){}
       }
     } else if (val != null) {
-      dom.setAttribute(name, String(val));
+      if (dom.setAttribute) dom.setAttribute(name, String(val));
       if (name === 'value' && 'value' in dom) {
         dom.value = val;
       }
     } else {
-      dom.removeAttribute(name);
+      if (dom.removeAttribute) dom.removeAttribute(name);
     }
   }
 
