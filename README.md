@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # SLP PLASTERING — Sitio Web Corporativo Oficial
 
 > **30 años de experiencia en plastering y stucco comercial en Fort Worth, Texas, USA**
@@ -127,3 +128,6 @@ El proyecto está diseñado bajo estándares web estáticos modernos:
 - **Vercel / Netlify:** Conecte el repositorio y publique seleccionando la carpeta raíz.
 - **GitHub Pages:** Suba los archivos al branch `gh-pages` o active Pages desde `main`.
 - **Hosting Compartido / cPanel:** Suba todos los archivos por FTP a la carpeta `public_html`.
+=======
+# alemazapan-slp-plastering
+>>>>>>> 0461958b02dcfd299b8a96c411b3f53d7852fcf0
