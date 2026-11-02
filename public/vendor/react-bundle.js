@@ -1,12 +1,13 @@
 /**
  * SLP Plastering - Standalone React & VDOM Runtime
- * Provides full React-compatible API (useState, useEffect, useMemo, useRef, createElement, createRoot)
- * and tagged template helper `html` for clean, zero-dependency declarative UI.
+ * Zero external dependencies. Full browser and offline compatibility.
+ * Provides: React.useState, React.useEffect, React.useMemo, React.useCallback,
+ * React.useRef, React.createElement, ReactDOM.createRoot, and global `html` tagged template helper.
  */
 (function(global) {
   'use strict';
 
-  // --- VDOM Types ---
+  // --- VDOM Node Type ---
   function VNode(type, props, children, key) {
     this.type = type;
     this.props = props || {};
@@ -43,12 +44,12 @@
     return new VNode(type, props, children, key);
   }
 
-  // --- Tagged Template Helper `html` (Mini HTM) ---
-  // Transforms html`<div class="foo">${content}</div>` into createElement tree
-  function parseHtml(statics, ...substs) {
-    // Mini tokenizer for tagged templates
+  // --- Tagged Template Helper `html` (Lightweight declarative parser) ---
+  function parseHtml(statics) {
+    var substs = Array.prototype.slice.call(arguments, 1);
     var raw = '';
     var placeholders = [];
+
     for (var i = 0; i < statics.length; i++) {
       raw += statics[i];
       if (i < substs.length) {
@@ -60,13 +61,13 @@
 
     var root = { type: 'root', children: [] };
     var stack = [root];
-    // Regex matches tags, self-closing tags, text, and comments
     var tagRegex = /<!--[\s\S]*?-->|<(\/?)([a-zA-Z0-9_\-]+)((?:\s+[a-zA-Z0-9_\-:@.]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*(\/?)>/g;
     var lastIndex = 0;
     var match;
 
     function processText(text) {
       if (!text) return;
+      if (stack.length === 1 && !text.trim()) return;
       var parts = text.split(/(__SLP_PH_\d+__)/);
       for (var p = 0; p < parts.length; p++) {
         var part = parts[p];
@@ -89,16 +90,18 @@
       if (match[0].startsWith('<!--')) continue;
 
       var isClose = Boolean(match[1]);
-      var tagName = match[2];
+      var rawTagName = match[2];
       var attrString = match[3];
-      var isSelfClosing = Boolean(match[4]) || /^(img|input|br|hr|meta|link)$/i.test(tagName);
+
+      var phTagMatch = rawTagName.match(/^__SLP_PH_(\d+)__$/);
+      var tagType = phTagMatch ? placeholders[Number(phTagMatch[1])] : rawTagName;
+      var isSelfClosing = Boolean(match[4]) || (typeof tagType === 'string' && /^(img|input|br|hr|meta|link)$/i.test(tagType));
 
       if (isClose) {
         if (stack.length > 1) {
           stack.pop();
         }
       } else {
-        // Parse attributes
         var props = {};
         if (attrString) {
           var attrRegex = /([a-zA-Z0-9_\-:@.]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
@@ -118,14 +121,13 @@
               }
             }
 
-            // Normalise attribute names
             if (aName === 'class') aName = 'className';
             else if (aName === 'for') aName = 'htmlFor';
             props[aName] = aVal;
           }
         }
 
-        var node = { type: tagName, props: props, children: [] };
+        var node = { type: tagType, props: props, children: [] };
         stack[stack.length - 1].children.push(node);
 
         if (!isSelfClosing) {
@@ -143,7 +145,6 @@
         return n.map(toVNode).filter(function(x) { return x != null; });
       }
       var ch = (n.children || []).map(toVNode).filter(function(x) { return x != null; });
-      // Flatten children
       var flat = [];
       for (var k = 0; k < ch.length; k++) {
         if (Array.isArray(ch[k])) flat.push.apply(flat, ch[k]);
@@ -152,16 +153,19 @@
       return createElement(n.type, n.props, flat);
     }
 
-    if (root.children.length === 1) {
-      return toVNode(root.children[0]);
+    var validRoots = root.children.filter(function(c) {
+      return c != null && (typeof c !== 'string' || c.trim().length > 0);
+    });
+
+    if (validRoots.length === 1) {
+      return toVNode(validRoots[0]);
     }
-    return toVNode(root.children);
+    return toVNode(validRoots);
   }
 
-  // --- Hooks & Reconciler Engine ---
+  // --- Hooks & Component Engine ---
   var currentInstance = null;
   var currentHookIndex = 0;
-  var scheduleUpdate = null;
 
   function useState(initial) {
     if (!currentInstance) throw new Error('useState must be called inside a component');
@@ -226,8 +230,7 @@
     this.activeEffects = [];
     this.dom = null;
     this.vnode = null;
-    this.childrenInstances = [];
-    this.isMounted = false;
+    this.updatePending = false;
   }
 
   ComponentInstance.prototype.render = function() {
@@ -252,7 +255,8 @@
     var self = this;
     if (self.updatePending) return;
     self.updatePending = true;
-    queueMicrotask(function() {
+    var queueFn = typeof queueMicrotask === 'function' ? queueMicrotask : function(cb) { setTimeout(cb, 0); };
+    queueFn(function() {
       self.updatePending = false;
       self.update();
     });
@@ -287,6 +291,8 @@
   };
 
   // --- DOM Diffing & Reconciler ---
+  var SVG_TAGS = /^(svg|path|circle|rect|line|polyline|polygon|g|defs|text|use)$/i;
+
   function setProp(dom, name, val, prevVal) {
     if (name === 'children' || name === 'key') return;
 
@@ -298,8 +304,12 @@
       if (!dom._slpHandlers) dom._slpHandlers = {};
       dom._slpHandlers[eventName] = val;
       dom.addEventListener(eventName, val);
-    } else if (name === 'className') {
-      dom.className = val || '';
+    } else if (name === 'className' || name === 'class') {
+      if (dom.setAttribute) {
+        dom.setAttribute('class', val || '');
+      } else {
+        dom.className = val || '';
+      }
     } else if (name === 'style') {
       if (typeof val === 'string') {
         dom.style.cssText = val;
@@ -328,9 +338,18 @@
     }
   }
 
-  function createDom(vnode, parentDom) {
+  function createDom(vnode, parentDom, isSvg) {
     if (vnode == null || vnode === false || vnode === true) {
       return document.createTextNode('');
+    }
+
+    if (Array.isArray(vnode)) {
+      var frag = document.createDocumentFragment ? document.createDocumentFragment() : document.createElement('div');
+      for (var i = 0; i < vnode.length; i++) {
+        var cDom = createDom(vnode[i], parentDom, isSvg);
+        if (cDom) frag.appendChild(cDom);
+      }
+      return frag;
     }
 
     if (typeof vnode === 'string' || typeof vnode === 'number') {
@@ -341,14 +360,22 @@
       var inst = new ComponentInstance(vnode.type, vnode.props, parentDom);
       var childVNode = inst.render();
       inst.vnode = childVNode;
-      var dom = createDom(childVNode, parentDom);
+      var dom = createDom(childVNode, parentDom, isSvg);
       inst.dom = dom;
       dom._slpInstance = inst;
       inst.runEffects();
       return dom;
     }
 
-    var dom = document.createElement(vnode.type);
+    if (!vnode.type) {
+      return document.createTextNode('');
+    }
+
+    var inSvg = isSvg || SVG_TAGS.test(vnode.type);
+    var dom = inSvg && document.createElementNS
+      ? document.createElementNS('http://www.w3.org/2000/svg', vnode.type)
+      : document.createElement(vnode.type);
+
     dom._slpVNode = vnode;
 
     if (vnode.props) {
@@ -358,8 +385,8 @@
     }
 
     var ch = vnode.children || [];
-    for (var i = 0; i < ch.length; i++) {
-      var childDom = createDom(ch[i], dom);
+    for (var j = 0; j < ch.length; j++) {
+      var childDom = createDom(ch[j], dom, inSvg);
       if (childDom) dom.appendChild(childDom);
     }
 
@@ -430,7 +457,7 @@
     var oldCh = oldVNode.children || [];
     var newCh = newVNode.children || [];
     var maxLen = Math.max(oldCh.length, newCh.length);
-    var childNodes = Array.from(dom.childNodes);
+    var childNodes = Array.from(dom.childNodes || []);
 
     for (var c = 0; c < maxLen; c++) {
       var childNode = childNodes[c];
@@ -438,7 +465,7 @@
       var newChild = newCh[c];
 
       if (newChild && !oldChild) {
-        var added = createDom(newChild, dom);
+        var added = createDom(newChild, dom, SVG_TAGS.test(dom.tagName));
         dom.appendChild(added);
       } else if (!newChild && oldChild) {
         if (childNode) {
@@ -454,9 +481,8 @@
     return dom;
   }
 
-  // --- Root ---
+  // --- Root Mount ---
   function createRoot(container) {
-    var rootInstance = null;
     var currentVNode = null;
     var rootDom = null;
 
@@ -465,7 +491,7 @@
         if (!rootDom) {
           container.innerHTML = '';
           rootDom = createDom(vnode, container);
-          container.appendChild(rootDom);
+          if (rootDom) container.appendChild(rootDom);
           currentVNode = vnode;
         } else {
           rootDom = reconcile(container, rootDom, currentVNode, vnode);
@@ -483,7 +509,7 @@
     };
   }
 
-  // Export to global window
+  // Expose to window / global
   var React = {
     createElement: createElement,
     useState: useState,
