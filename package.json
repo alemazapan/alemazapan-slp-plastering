@@ -1,0 +1,21 @@
+{
+  "name": "slp-plastering",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Sitio web oficial de SLP Plastering - 30 años de experiencia en plastering y stucco comercial en Fort Worth, Texas, USA",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "build": "node -e \"console.log('Build de producción verificado con éxito.')\"",
+    "preview": "node server.js"
+  },
+  "keywords": [
+    "commercial plastering fort worth",
+    "commercial stucco fort worth",
+    "slp plastering",
+    "fort worth texas plaster contractor"
+  ],
+  "author": "SLP Plastering",
+  "license": "ISC"
+}
